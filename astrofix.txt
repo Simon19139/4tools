@@ -1,0 +1,5 @@
+{
+  "git_before": "A  astro_fix.js\n",
+  "error": "ENOENT: no such file or directory, open '/workspace/projects/scripts/src/components/astro-chart.tsx'",
+  "stack": "Error: ENOENT: no such file or directory, open '/workspace/projects/scripts/src/components/astro-chart.tsx'\n    at Object.readFileSync (node:fs:484:20)\n    at Object.<anonymous> (/workspace/projects/scripts/astro_fix.js:11:20)\n    at Module._compile (node:internal/modules/cjs/loader:1872:14)\n    at Object..js (node:internal/modules/cjs/loader:2003:10)\n    at Module.load (node:internal/modules/cjs/loader:1594:32)\n    at Module._load (node:internal/modules/cjs/loader:1396:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47"
+}

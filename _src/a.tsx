@@ -1,0 +1,423 @@
+'use client';
+
+import React, { useMemo, useRef, useEffect, useCallback, useState } from 'react';
+import { calculateNatalChart } from '@/lib/astro';
+import { Solar } from 'lunar-javascript';
+
+const ZODIAC_SHORT = ['白羊', '金牛', '双子', '巨蟹', '狮子', '处女', '天秤', '天蝎', '射手', '摩羯', '水瓶', '双鱼'];
+const ZODIAC_SINGLE = ['羊', '牛', '双', '蟹', '狮', '处', '秤', '蝎', '射', '羯', '瓶', '鱼'];
+const PLANET_SHORT = ['日', '月', '水', '金', '火', '木', '土', '天', '海', '冥'];
+const ASPECT_NAMES: Record<string, string> = { conjunction: '合', sextile: '六合', square: '刑', trine: '三合', opposition: '冲' };
+const ASPECT_COLORS: Record<string, string> = {
+  conjunction: '#888888', sextile: '#69db7c', square: '#ff6b6b', trine: '#2ecc71', opposition: '#e74c3c',
+};
+
+interface AstroChartProps {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  gender: 'male' | 'female';
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+  city?: { city: string; lat: number; lon: number };
+}
+
+export default function AstroChart({ year, month, day, hour, minute, gender, isFullscreen, onToggleFullscreen, city }: AstroChartProps) {
+  const birthDate = new Date(year, month - 1, day);
+  const birthHour = hour;
+  const birthMinute = minute;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [showAspects, setShowAspects] = useState(true);
+  const [showTable, setShowTable] = useState(false);
+  const [mode, setMode] = useState<'modern' | 'classical'>('modern');
+
+  const astroData = useMemo(() => {
+    const lat = city?.lat ?? 31.2;
+    const lon = city?.lon ?? 121.5;
+    return calculateNatalChart(
+      birthDate.getFullYear(), birthDate.getMonth() + 1, birthDate.getDate(),
+      birthHour, birthMinute, lat, lon, mode, 'whole-sign'
+    );
+  }, [birthDate, birthHour, birthMinute, city, mode]);
+
+  // 绘制星盘 - 三同心圆设计
+  const drawChart = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || astroData.planets.length === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement!.getBoundingClientRect();
+    const size = Math.min(rect.width, rect.height);
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, size, size);
+
+    const cx = size / 2;
+    const cy = size / 2;
+
+    // 三同心圆半径
+    const R_OUTER = 0.6 * size;  // 最外圈（星座环外缘）
+    const R_ZODIAC = 0.5 * size; // 星座环内缘 = 星辰环外缘
+    const R_HOUSE = 0.4 * size;  // 星辰环内缘 = 宫位环外缘
+    const R_INNER = 0.3 * size;  // 宫位环内缘
+    const R_CENTER = 0.12 * size; // 中心信息区
+
+    const asc = astroData.ascendant;
+    const lonToAngle = (lon: number) => ((asc - lon + 180) * Math.PI) / 180;
+
+    // === 1. 外圈 - 星座环 ===
+    // 星座背景 - 交替颜色
+    for (let i = 0; i < 12; i++) {
+      const startAngle = lonToAngle(i * 30);
+      const endAngle = lonToAngle((i + 1) * 30);
+      ctx.beginPath();
+      ctx.moveTo(cx + R_ZODIAC * Math.cos(startAngle), cy + R_ZODIAC * Math.sin(startAngle));
+      ctx.arc(cx, cy, R_OUTER, startAngle, endAngle);
+      ctx.arc(cx, cy, R_ZODIAC, endAngle, startAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(212, 196, 245, 0.08)' : 'rgba(245, 230, 163, 0.08)';
+      ctx.fill();
+
+      // 星座分界线（15°虚线）
+      for (let j = 0; j < 2; j++) {
+        const deg = i * 30 + j * 15;
+        if (deg === 0) continue;
+        const a = lonToAngle(deg);
+        ctx.beginPath();
+        ctx.moveTo(cx + R_ZODIAC * Math.cos(a), cy + R_ZODIAC * Math.sin(a));
+        ctx.lineTo(cx + R_OUTER * Math.cos(a), cy + R_OUTER * Math.sin(a));
+        ctx.strokeStyle = i % 2 === 0 ? 'rgba(212, 196, 245, 0.15)' : 'rgba(245, 230, 163, 0.15)';
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // 星座名 - 在星座环中间位置
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const rLabel = (R_OUTER + R_ZODIAC) / 2;
+    for (let i = 0; i < 12; i++) {
+      const a = lonToAngle(i * 30 + 15);
+      const x = cx + rLabel * Math.cos(a);
+      const y = cy + rLabel * Math.sin(a);
+      // 左半边翻转
+      const angle = a * 180 / Math.PI;
+      ctx.save();
+      ctx.translate(x, y);
+      // 文字正置，不翻转
+      ctx.fillStyle = '#d4c4f5';
+      ctx.font = '11px "Noto Serif SC", "Source Han Serif SC", serif';
+      ctx.fillText(ZODIAC_SHORT[i], 0, 0);
+      ctx.restore();
+    }
+
+    // 星座环外圈描边
+    ctx.beginPath();
+    ctx.arc(cx, cy, R_OUTER, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(212, 196, 245, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 星座环与星辰环分界
+    ctx.beginPath();
+    ctx.arc(cx, cy, R_ZODIAC, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(212, 196, 245, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // === 2. 中圈 - 星辰环 ===
+    // 相位线 - 先画线再画点，避免被覆盖
+    if (showAspects) {
+      for (const aspect of astroData.aspects) {
+        const p1 = astroData.planets.find(p => p.id === aspect.planet1);
+        const p2 = astroData.planets.find(p => p.id === aspect.planet2);
+        if (!p1 || !p2) continue;
+        const a1 = lonToAngle(p1.longitude);
+        const a2 = lonToAngle(p2.longitude);
+        const rMid = (R_ZODIAC + R_HOUSE) / 2;
+        const x1 = cx + rMid * Math.cos(a1);
+        const y1 = cy + rMid * Math.sin(a1);
+        const x2 = cx + rMid * Math.cos(a2);
+        const y2 = cy + rMid * Math.sin(a2);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = ASPECT_COLORS[aspect.type] || '#666';
+        ctx.lineWidth = aspect.planet1 === 1 || aspect.planet2 === 1 ? 3 : 2;
+        ctx.globalAlpha = 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // 行星 - 黑点+单字名+度数
+    const rPlanet = (R_ZODIAC + R_HOUSE) / 2;
+    const rOffset = 14; // 标签偏移量（像素）
+    const sortedPlanets = [...astroData.planets].sort((a, b) => a.longitude - b.longitude);
+    // 防堆叠 - 用角度+偏移量列表
+    const planetRenderData: { p: typeof astroData.planets[0]; angle: number; labelR: number; labelDir: 1 | -1 }[] = [];
+    for (const p of sortedPlanets) {
+      const angle = lonToAngle(p.longitude);
+      // 检查是否与已渲染的行星太近（角度差<8°时，标签交替内外偏移）
+      let tooClose = false;
+      for (const d of planetRenderData) {
+        if (Math.abs(p.longitude - d.p.longitude) < 8) { tooClose = true; break; }
+      }
+      const prevCount = planetRenderData.filter(d => Math.abs(p.longitude - d.p.longitude) < 12).length;
+      const labelDir = (prevCount % 2 === 0) ? 1 : -1;
+      planetRenderData.push({ p, angle, labelR: rPlanet + labelDir * rOffset, labelDir: labelDir as 1 | -1 });
+    }
+
+    for (const rd of planetRenderData) {
+      const { p, angle, labelR } = rd;
+      const x = cx + rPlanet * Math.cos(angle);
+      const y = cy + rPlanet * Math.sin(angle);
+      const labelX = cx + labelR * Math.cos(angle);
+      const labelY = cy + labelR * Math.sin(angle);
+
+      // 黑点
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = p.retrograde ? '#ff6b6b' : '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // 标签：单字名 + 度数
+      const idx = p.id - 1;
+      const shortName = PLANET_SHORT[idx] || p.nameCN[0];
+      const degStr = (p.longitude % 30).toFixed(1) + '°';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // 水平正置，不需翻转
+      ctx.save();
+      ctx.translate(labelX, labelY);
+      ctx.fillStyle = p.retrograde ? '#ff6b6b' : '#f5e6a3';
+      ctx.font = 'bold 11px "Noto Sans SC", sans-serif';
+      ctx.fillText(shortName, 0, -6);
+      ctx.fillStyle = '#a0a0a0';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(degStr, 0, 7);
+      ctx.restore();
+    }
+
+    // 星辰环与宫位环分界
+    ctx.beginPath();
+    ctx.arc(cx, cy, R_HOUSE, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(212, 196, 245, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // === 3. 内圈 - 宫位环 ===
+    // 宫位背景色 - 整宫制每宫30°
+    for (let i = 0; i < 12; i++) {
+      const startAngle = lonToAngle(astroData.houses[i].cusp);
+      const endAngle = lonToAngle(astroData.houses[i].cusp + 30);
+      ctx.beginPath();
+      ctx.moveTo(cx + R_INNER * Math.cos(startAngle), cy + R_INNER * Math.sin(startAngle));
+      ctx.arc(cx, cy, R_HOUSE, startAngle, endAngle);
+      ctx.arc(cx, cy, R_INNER, endAngle, startAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(212, 196, 245, 0.06)' : 'rgba(245, 230, 163, 0.06)';
+      ctx.fill();
+    }
+
+    // 宫位分割线
+    for (const house of astroData.houses) {
+      const a = lonToAngle(house.cusp);
+      ctx.beginPath();
+      ctx.moveTo(cx + R_HOUSE * Math.cos(a), cy + R_HOUSE * Math.sin(a));
+      ctx.lineTo(cx + R_INNER * Math.cos(a), cy + R_INNER * Math.sin(a));
+      ctx.strokeStyle = 'rgba(212, 196, 245, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 宫位号 + 星座名
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const rHouseLabel = (R_HOUSE + R_INNER) / 2;
+    for (const house of astroData.houses) {
+      const a = lonToAngle(house.cusp + 15); // 中间位置
+      const x = cx + rHouseLabel * Math.cos(a);
+      const y = cy + rHouseLabel * Math.sin(a);
+      const angleDeg = a * 180 / Math.PI;
+      const ascSign = Math.floor(asc / 30);
+      const houseSign = (ascSign + house.number - 1) % 12;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = '#a0a0a0';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(house.number + '宫', 0, 0);
+      ctx.restore();
+    }
+
+    // 宫位环内圈描边
+    ctx.beginPath();
+    ctx.arc(cx, cy, R_INNER, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(212, 196, 245, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // === 4. ASC/MC 标记 ===
+    // ASC标记（9点钟方向=左侧）
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI); // 旋转到上方
+    // ASC箭头
+    ctx.beginPath();
+    ctx.moveTo(0, R_HOUSE + 2);
+    ctx.lineTo(-6, R_OUTER + 6);
+    ctx.lineTo(6, R_OUTER + 6);
+    ctx.closePath();
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fill();
+    // ASC标签
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText('ASC', 0, R_OUTER + 8);
+    ctx.restore();
+
+    // MC标记（上方）
+    const mcAngle = lonToAngle(astroData.midheaven);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(mcAngle);
+    ctx.beginPath();
+    ctx.moveTo(0, R_HOUSE + 2);
+    ctx.lineTo(-5, R_OUTER + 4);
+    ctx.lineTo(5, R_OUTER + 4);
+    ctx.closePath();
+    ctx.fillStyle = '#69db7c';
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#69db7c';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText('MC', 0, R_OUTER + 6);
+    ctx.restore();
+
+    // === 5. 中心信息 ===
+    const ascSign = Math.floor(asc / 30);
+    const ascDeg = (asc % 30).toFixed(1);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('ASC', cx, cy - 18);
+    ctx.fillStyle = '#f5e6a3';
+    ctx.font = '11px serif';
+    ctx.fillText(ZODIAC_SHORT[ascSign] + ascDeg + '°', cx, cy - 4);
+    ctx.fillStyle = '#69db7c';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('MC', cx, cy + 12);
+    ctx.fillStyle = '#a0a0a0';
+    ctx.font = '10px serif';
+    ctx.fillText(ZODIAC_SHORT[Math.floor(astroData.midheaven / 30)], cx, cy + 26);
+
+    // 相位图例（右下角）
+    const legendX = cx + R_OUTER * 0.65;
+    const legendY = cy + R_OUTER * 0.65;
+    let li = 0;
+    const aspectInfo = [
+      { label: '合相', color: '#888888' },
+      { label: '六合', color: '#69db7c' },
+      { label: '刑', color: '#ff6b6b' },
+      { label: '三合', color: '#2ecc71' },
+      { label: '冲', color: '#e74c3c' },
+    ];
+    for (const ai of aspectInfo) {
+      ctx.fillStyle = ai.color + '80';
+      ctx.fillRect(legendX, legendY + li * 14, 8, 8);
+      ctx.fillStyle = '#a0a0a0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ai.label, legendX + 12, legendY + li * 14 + 4);
+      li++;
+    }
+  }, [astroData, isFullscreen, showAspects, mode]);
+
+  useEffect(() => { drawChart(); }, [drawChart]);
+
+  // ... 返回 JSX 保持不变
+  return (
+    <div className="relative w-full min-h-[620px] h-[85vh] flex flex-col">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-[#d4c4f5]/5">
+        <div className="flex items-center gap-2">
+          <div className="flex text-[11px] border border-[#d4c4f5]/20 rounded overflow-hidden">
+            <button
+              className={`px-2 py-0.5 ${mode === 'modern' ? 'bg-[#d4c4f5]/20 text-[#d4c4f5]' : 'text-[#d4c4f5]/50'}`}
+              onClick={() => setMode('modern')}
+            >现代</button>
+            <button
+              className={`px-2 py-0.5 ${mode === 'classical' ? 'bg-[#d4c4f5]/20 text-[#d4c4f5]' : 'text-[#d4c4f5]/50'}`}
+              onClick={() => setMode('classical')}
+            >古典</button>
+          </div>
+          <label className="flex items-center gap-1 text-[11px] text-[#a0a0a0] cursor-pointer">
+            <input type="checkbox" checked={showAspects} onChange={e => setShowAspects(e.target.checked)} className="accent-[#d4c4f5]" />
+            相位
+          </label>
+        </div>
+        <button
+          className="text-[11px] text-[#d4c4f5]/50 hover:text-[#d4c4f5]"
+          onClick={() => onToggleFullscreen()}
+        >{isFullscreen ? '还原' : '全屏'}</button>
+      </div>
+
+      <div className="flex-1 relative flex items-center justify-center">
+        <canvas ref={canvasRef} className="w-full h-full" />
+      </div>
+
+        <div className="px-2 py-0.5 border-t border-[#d4c4f5]/5 flex justify-center">
+          <button className="text-[10px] text-[#d4c4f5]/40 hover:text-[#d4c4f5] transition-colors" onClick={() => setShowTable(!showTable)}>{showTable ? '收起行星表 ▲' : '展开行星表 ▼'}</button>
+        </div>
+
+      {/* 行星表格 */}
+      {showTable && (
+      <div className="px-2 py-1 border-t border-[#d4c4f5]/5 text-[11px]">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-[#a0a0a0]">
+              <th className="py-0.5 pr-1">星</th>
+              <th className="py-0.5 pr-1">黄经</th>
+              <th className="py-0.5 pr-1">星座</th>
+              <th className="py-0.5 pr-1">宫</th>
+              <th className="py-0.5 pr-1">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {astroData.planets.map((p, i) => {
+              const sign = Math.floor(p.longitude / 30);
+              const deg = p.longitude % 30;
+              return (
+                <tr key={i} className="border-b border-[#d4c4f5]/5">
+                  <td className="py-0.5 pr-1 text-[#f5e6a3]">{p.nameCN}</td>
+                  <td className="py-0.5 pr-1 text-[#a0a0a0]">{deg.toFixed(1)}°</td>
+                  <td className="py-0.5 pr-1 text-[#d4c4f5]">{ZODIAC_SHORT[sign]}</td>
+                  <td className="py-0.5 pr-1 text-[#a0a0a0]">{p.house}</td>
+                  <td className="py-0.5 text-[#a0a0a0]">{p.retrograde ? '逆行' : ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      )}
+    </div>
+  );
+}

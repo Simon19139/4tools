@@ -1,0 +1,21 @@
+{
+  "changes": [
+    "[fix1] L154: globalAlpha 0.6 -> 1",
+    "[fix1] 相位线加粗加深完成",
+    "[fix2] 找到冥王星相关代码",
+    "[fix3] R_OUTER: 0.46 -> 0.6",
+    "[fix3] R_ZODIAC: 0.38 -> 0.5",
+    "[fix3] R_HOUSE: 0.30 -> 0.4",
+    "[fix3] R_INNER: 0.20 -> 0.3",
+    "[fix3] 星盘放大完成",
+    "[fix4] 未找到 GONG_LAYOUT.map",
+    "[fix5] L276: ASC rotate -PI/2 -> PI（从顶部移到左侧）",
+    "[fix5][info] MC angle L294: const mcAngle = lonToAngle(astroData.midheaven);",
+    "[fix5][info] MC angle L297: ctx.rotate(mcAngle);",
+    "[fix5][info] 中心MC标签 L309: ctx.fillText('MC', 0, R_OUTER + 6);",
+    "[fix5][info] 中心ASC标签 L319: ctx.fillText('ASC', cx, cy - 18);",
+    "[fix5][info] 中心MC标签 L325: ctx.fillText('MC', cx, cy + 12);",
+    "[fix5] ASC/MC标识点修复完成"
+  ],
+  "ok": true
+}
